@@ -1,0 +1,112 @@
+install.packages("patchwork")\
+\
+library(tidyverse)\
+library(patchwork)\
+\
+data <- read_csv('/Users/marina-solo/Downloads/STAGE 2026 Solo/speech_mod_pavlovia/ALL_COMBINED_STEM_NA_FUZZY_M.csv',\
+col_types = cols(.default = col_character()))\
+\
+# Prepare data\
+plot_data <- data %>%\
+filter(proc %in% c("NV", "LR")) %>%\
+mutate(\
+word_percentage_M = as.numeric(word_percentage_M),\
+bands_num = as.integer(str_remove(bands, "b")),\
+condition = case_when(\
+cond == "Q" ~ "Quiet",\
+cond == "N" ~ "Noisy",\
+TRUE ~ cond\
+),\
+proc_label = case_when(\
+proc == "NV" ~ "Noise Vocoded",\
+proc == "LR" ~ "Locally Rotated",\
+TRUE ~ proc\
+)\
+) %>%\
+filter(!is.na(word_percentage_M), !is.na(bands_num), cond %in% c("Q", "N"))\
+\
+# Average performance per participant per band/proc/condition\
+# then average across participants\
+avg_data <- plot_data %>%\
+group_by(bands_num, proc_label, condition) %>%\
+summarise(mean_correct = mean(word_percentage_M, na.rm = TRUE),\
+se = sd(word_percentage_M, na.rm = TRUE) / sqrt(n()),\
+.groups = "drop") %>%\
+mutate(line_type = "Mean")\
+\
+# Best response function: best score per band across all sentences\
+best_data <- plot_data %>%\
+group_by(bands_num, proc_label, condition) %>%\
+summarise(mean_correct = max(word_percentage_M, na.rm = TRUE),\
+se = NA_real_,\
+.groups = "drop") %>%\
+mutate(line_type = "Best")\
+\
+# Combine\
+combined <- bind_rows(avg_data, best_data) %>%\
+mutate(\
+line_label = paste(proc_label, line_type),\
+line_label = factor(line_label, levels = c(\
+"Noise Vocoded Mean", "Noise Vocoded Best",\
+"Locally Rotated Mean", "Locally Rotated Best"\
+))\
+)\
+\
+# Colours and linetypes\
+colours <- c(\
+"Noise Vocoded Mean" = "#E66100",\
+"Noise Vocoded Best" = "#E66100",\
+"Locally Rotated Mean" = "#5D3A9B",\
+"Locally Rotated Best" = "#5D3A9B"\
+)\
+\
+linetypes <- c(\
+"Noise Vocoded Mean" = "solid",\
+"Noise Vocoded Best" = "dashed",\
+"Locally Rotated Mean" = "solid",\
+"Locally Rotated Best" = "dashed"\
+)\
+\
+# Plot function\
+make_plot <- function(cond_label) {\
+d <- combined %>% filter(condition == cond_label)\
+\
+ggplot(d, aes(x = bands_num, y = mean_correct,\
+colour = line_label, linetype = line_label, group = line_label)) +\
+geom_line(linewidth = 0.5) +\
+geom_point(size = 1) +\
+geom_errorbar(data = filter(d, line_type == "Mean"),\
+aes(ymin = mean_correct - se, ymax = mean_correct + se),\
+width = 0.3) +\
+scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +\
+scale_x_continuous(breaks = sort(unique(d$bands_num))) +\
+scale_colour_manual(values = colours) +\
+scale_linetype_manual(values = linetypes) +\
+labs(\
+title = cond_label,\
+x = "Number of Bands",\
+y = "Mean % Words Correct",\
+colour = NULL,\
+linetype = NULL\
+) +\
+theme_minimal(base_size = 13) +\
+theme(\
+legend.position = "bottom",\
+panel.grid.minor = element_blank(),\
+plot.title = element_text(hjust = 0.5, face = "bold")\
+)\
+}\
+\
+p_quiet <- make_plot("Quiet")\
+p_noisy <- make_plot("Noisy")\
+\
+# Combine side by side with shared legend\
+combined_plot <- p_quiet + p_noisy +\
+plot_layout(guides = "collect") &\
+theme(legend.position = "bottom")\
+\
+combined_plot\
+\
+ggsave('/Users/marina-solo/Downloads/STAGE 2026 Solo/speech_mod_pavlovia/plot_quiet_noisy.png',\
+combined_plot, width = 12, height = 5, dpi = 300)\
+message("Plot saved!")
