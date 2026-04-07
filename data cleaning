@@ -190,3 +190,59 @@ exp_data\
 # SAVE COMBINED OUTPUT\
 write_csv(all_data, output_file)\
 message("Done! Combined file saved to: ", output_file)
+
+# MANUAL CLEANING TIME!!
+#1. flag the words that were not misspelt but misheard
+
+#Example:
+#|               |                                     |                                       |
+#| ------------- | ----------------------------------- | ------------------------------------- |
+#| **misspelt**  | she saw the toyed coat in the eight | She sewed the torn coat quite neatly. |
+#| **missheard** | she set the tone quite neatly       | She sewed the torn coat quite neatly. |
+
+#2. flag the ‘I didn’t hear anything’ type of the answers
+#3. Run the rest of the code
+
+input_file <- '/Users/marina-solo/Downloads/STAGE 2026 Solo/speech_mod_pavlovia/ALL_COMBINED_STEM_NA_FUZZY.csv'\
+output_file <- '/Users/marina-solo/Downloads/STAGE 2026 Solo/speech_mod_pavlovia/ALL_COMBINED_STEM_NA_FUZZY_M.csv'\
+\
+data <- read_csv(input_file, col_types = cols(.default = col_character()))\
+\
+data <- data %>%\
+mutate(\
+# Extract denominator (total words) from word_proportion e.g. "6 of 8" -> 8\
+n_words = as.integer(str_extract(word_proportion, "\\d+$")),\
+\
+# Extract numerator (correct words) from word_proportion e.g. "6 of 8" -> 6\
+n_correct = as.integer(str_extract(word_proportion, "^\\d+")),\
+\
+word_proportion_M = case_when(\
+\
+# flag_attitude = 1 -> 0 correct regardless of anything else\
+flag_attitude == "1" ~ paste0("0 of ", n_words),\
+\
+# flag_spelling has a value -> subtract that many correct words\
+!is.na(flag_spelling) & flag_spelling != "" ~ paste0(\
+pmax(0, n_correct - as.integer(flag_spelling)), " of ", n_words\
+),\
+\
+# otherwise copy word_proportion as-is\
+TRUE ~ word_proportion\
+),\
+\
+word_percentage_M = case_when(\
+\
+flag_attitude == "1" ~ 0,\
+\
+!is.na(flag_spelling) & flag_spelling != "" ~ round(\
+pmax(0, n_correct - as.integer(flag_spelling)) / n_words * 100, 1\
+),\
+\
+TRUE ~ as.numeric(word_percentage)\
+)\
+) %>%\
+select(-n_words, -n_correct) # remove helper columns\
+\
+write_csv(data, output_file)\
+message("Done! Saved to: ", output_file)
+
