@@ -1,0 +1,273 @@
+#VERSION 1 OF 2 - NO INDUVIDUAL LINES
+#-----------------------------
+install.packages("quickpsy")\
+install.packages("patchwork")\
+library(quickpsy)\
+library(tidyverse)\
+library(patchwork)\
+\
+# quickpsy needs averaged data per band per participant\
+# Summarise to mean proportion correct per band/proc/condition\
+psy_data <- model_data %>%\
+mutate(proc_label = ifelse(proc == "NV", "Noise Vocoded", "Locally Rotated")) %>%\
+group_by(bands_num, proc_label, condition) %>%\
+summarise(\
+n_correct = sum(n_correct, na.rm = TRUE),\
+n_total = sum(n_total, na.rm = TRUE),\
+.groups = "drop"\
+)\
+\
+original_bands <- sort(unique(as.integer(str_remove(model_data$bands, "b"))))\
+log_bands <- log(original_bands)\
+\
+psy_data <- psy_data %>%\
+mutate(bands_num = as.numeric(log(bands_num)))\
+\
+# Fit psychometric functions with free lapse rate\
+fit <- quickpsy(\
+psy_data,\
+x = bands_num, # predictor\
+k = n_correct, # number correct\
+n = n_total, # number total\
+grouping = .(proc_label, condition), # fit separately per group\
+fun = cum_normal_fun, # probit = cumulative normal\
+B = 100, # bootstrap samples for CIs\
+lapses = TRUE, # THIS is what allows asymptote < 100%\
+guess = FALSE # no guessing rate (not a forced choice task)\
+)\
+\
+# Predicted curves\
+pred_curves <- fit$curves\
+\
+# Thresholds (50% point)\
+thresholds <- fit$thresholds\
+print(thresholds)\
+\
+# Lapse rates\
+lapses <- fit$par %>% filter(parn == "lambda")\
+print(lapses)\
+\
+# Custom plot\
+make_plot <- function(cond_label, proc_label_filter) {\
+\
+colour_val <- ifelse(proc_label_filter == "Noise Vocoded", "#E66100", "#5D3A9B")\
+\
+pred <- pred_curves %>% filter(condition == cond_label, proc_label == proc_label_filter)\
+obs <- psy_data %>%\
+filter(condition == cond_label, proc_label == proc_label_filter) %>%\
+mutate(mean_pct = n_correct / n_total * 100)\
+thresh <- thresholds %>% filter(condition == cond_label, proc_label == proc_label_filter)\
+\
+ggplot() +\
+geom_line(data = pred,\
+aes(x = x, y = y * 100),\
+colour = colour_val, linewidth = 0.5) +\
+geom_point(data = obs,\
+aes(x = bands_num, y = mean_pct),\
+colour = colour_val, alpha = 0.7) +\
+geom_vline(data = thresh,\
+aes(xintercept = thre),\
+colour = colour_val, linetype = "dotted") +\
+annotate("text", x = thresh$thre, y = 5,\
+label = paste0("50% at ", round(exp(thresh$thre), 1), " bands"),\
+hjust = -0.01, size = 3.5, colour = colour_val) +\
+scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +\
+scale_x_continuous(breaks = log_bands,\
+labels = original_bands) +\
+scale_size_continuous(range = c(2, 10), name = "N words") +\
+labs(\
+title = paste(cond_label, "-", proc_label_filter),\
+x = "Number of Bands (log scale)",\
+y = "% Words Correct"\
+) +\
+theme_minimal(base_size = 13) +\
+theme(\
+legend.position = "bottom",\
+panel.grid.minor = element_blank(),\
+plot.title = element_text(hjust = 0.5, face = "bold")\
+)\
+}\
+\
+p1 <- make_plot("Quiet", "Noise Vocoded")\
+p2 <- make_plot("Quiet", "Locally Rotated")\
+p3 <- make_plot("Noisy", "Noise Vocoded")\
+p4 <- make_plot("Noisy", "Locally Rotated")\
+\
+combined_plot <- (p1 | p2) / (p3 | p4)\
+\
+combined_plot\
+\
+ggsave('/Users/marina-solo/Downloads/STAGE 2026 Solo/speech_mod_pavlovia/plot_probit_lapse_4panels.png',\
+combined_plot, width = 12, height = 10, dpi = 300)\
+message("Plot saved!")
+
+
+
+#VERSION 2 OF 2 - INDUVIDUAL LINES
+#-----------------------------
+library(quickpsy)
+library(tidyverse)
+library(patchwork)
+
+input_file <- '/Users/marina-solo/Downloads/STAGE 2026 Solo/speech_mod_pavlovia/ALL_COMBINED_RESCALE.csv'
+data <- read_csv(input_file, col_types = cols(.default = col_character()))
+
+# Preapare data
+model_data <- data %>%
+  mutate(
+    n_bands     = as.numeric(str_extract(bands, "\\d+")),
+    log_bands   = log(n_bands),
+    is_noisy    = as.integer(cond == "N"),
+    is_LR       = as.integer(proc == "LR"),
+    n_correct   = as.numeric(str_extract(word_proportion_M, "^\\d+")),
+    n_total     = as.numeric(str_extract(word_proportion_M, "\\d+$")),
+    proc_label  = ifelse(proc == "NV", "Noise Vocoded", "Locally Rotated"),
+    condition   = ifelse(cond == "N", "Noisy", "Quiet"),
+    participant = as.factor(participant)
+  )
+
+original_bands <- sort(unique(model_data$n_bands))
+log_bands_vals <- log(original_bands)
+
+# Aggregate for GROUP-LEVEL curves
+
+psy_data_group <- model_data %>%
+  group_by(log_bands, proc_label, condition) %>%
+  summarise(
+    n_correct = sum(n_correct, na.rm = TRUE),
+    n_total   = sum(n_total,   na.rm = TRUE),
+    .groups   = "drop"
+  )
+
+# ── 3. Aggregate for INDIVIDUAL curves ────────────────────────────────────────
+psy_data_indiv <- model_data %>%
+  group_by(participant, log_bands, proc_label, condition) %>%
+  summarise(
+    n_correct = sum(n_correct, na.rm = TRUE),
+    n_total   = sum(n_total,   na.rm = TRUE),
+    .groups   = "drop"
+  )
+
+# ── 4. Fit GROUP psychometric functions ───────────────────────────────────────
+fit_group <- quickpsy(
+  psy_data_group,
+  x        = log_bands,
+  k        = n_correct,
+  n        = n_total,
+  grouping = .(proc_label, condition),
+  fun      = cum_normal_fun,
+  B        = 100,
+  lapses   = TRUE,
+  guess    = FALSE
+)
+
+# ── 5. Fit INDIVIDUAL psychometric functions ───────────────────────────────────
+fit_indiv <- quickpsy(
+  psy_data_indiv,
+  x         = log_bands,
+  k         = n_correct,
+  n         = n_total,
+  grouping  = .(participant, proc_label, condition),
+  fun       = cum_normal_fun,
+  B         = 0,
+  lapses    = TRUE,
+  guess     = FALSE,
+  parini    = list(c(1, 3), c(0.5, 2), c(0, 0.1))  # bounds: mu, sigma, lapse
+)
+pred_group  <- fit_group$curves
+pred_indiv  <- fit_indiv$curves
+thresh_group <- fit_group$thresholds
+thresh_indiv <- fit_indiv$thresholds
+
+print(thresh_group)
+print(fit_group$par %>% filter(parn == "lambda"))
+
+# ── 6. Plot function ───────────────────────────────────────────────────────────
+make_plot <- function(cond_label, proc_label_filter) {
+  
+  colour_val <- ifelse(proc_label_filter == "Noise Vocoded", "#E66100", "#5D3A9B")
+  
+  pred_g <- pred_group %>%
+    filter(condition == cond_label, proc_label == proc_label_filter)
+  
+  pred_i <- pred_indiv %>%
+    filter(condition == cond_label, proc_label == proc_label_filter)
+  
+  obs_g <- psy_data_group %>%
+    filter(condition == cond_label, proc_label == proc_label_filter) %>%
+    mutate(mean_pct = n_correct / n_total * 100)
+  
+  thresh_g <- thresh_group %>%
+    filter(condition == cond_label, proc_label == proc_label_filter)
+  
+  thresh_i <- thresh_indiv %>%
+    filter(condition == cond_label, proc_label == proc_label_filter)
+  
+  ggplot() +
+    # Individual curves — thin, transparent
+    geom_line(
+      data    = pred_i,
+      aes(x = x, y = y * 100, group = participant),
+      colour  = colour_val, alpha = 0.15, linewidth = 0.4
+    ) +
+    # Individual thresholds — small rug marks at bottom
+    geom_rug(
+      data  = thresh_i,
+      aes(x = thre),
+      sides = "b",
+      colour = colour_val, alpha = 0.4, linewidth = 0.4
+    ) +
+    # Group curve — bold
+    geom_line(
+      data      = pred_g,
+      aes(x = x, y = y * 100),
+      colour    = colour_val, linewidth = 1.2
+    ) +
+    # Observed group points
+    geom_point(
+      data   = obs_g,
+      aes(x = log_bands, y = mean_pct),
+      colour = colour_val, size = 2.5, alpha = 0.85
+    ) +
+    # Group threshold line
+    geom_vline(
+      data     = thresh_g,
+      aes(xintercept = thre),
+      colour   = colour_val, linetype = "dotted", linewidth = 0.8
+    ) +
+    annotate(
+      "text",
+      x     = thresh_g$thre,
+      y     = 5,
+      label = paste0("50% at ", round(exp(thresh_g$thre), 1), " bands"),
+      hjust = -0.05, size = 3.2, colour = colour_val
+    ) +
+    scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+    scale_x_continuous(breaks = log_bands_vals, labels = original_bands) +
+    labs(
+      title = paste(cond_label, "–", proc_label_filter),
+      x     = "Number of Bands (log scale)",
+      y     = "% Words Correct"
+    ) +
+    theme_minimal(base_size = 13) +
+    theme(
+      legend.position        = "none",
+      panel.grid.minor       = element_blank(),
+      plot.title             = element_text(hjust = 0.5, face = "bold")
+    )
+}
+
+# ── 7. Combine and save ────────────────────────────────────────────────────────
+p1 <- make_plot("Quiet", "Noise Vocoded")
+p2 <- make_plot("Quiet", "Locally Rotated")
+p3 <- make_plot("Noisy", "Noise Vocoded")
+p4 <- make_plot("Noisy", "Locally Rotated")
+
+combined_plot <- (p1 | p2) / (p3 | p4)
+combined_plot
+
+ggsave(
+  '/Users/marina-solo/Downloads/STAGE 2026 Solo/speech_mod_pavlovia/plot_probit_lapse_4panels.png',
+  combined_plot, width = 12, height = 10, dpi = 300
+)
+message("Plot saved!")
