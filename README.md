@@ -1,6 +1,3 @@
-The psyexp files are the experiments. 
-You might need to generate your own js files to run them online as well as your own stimuli.
-
 All codes starting with RMS are for generating stimuli.
 You will also need The Auditory Modelling Toolbox and trial list generation.R to prepare the stimuli!
 And... the king2019.m, noisevocoding.m, localrotating.m and solo_SNR.m functions.
