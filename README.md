@@ -2,7 +2,9 @@ The psyexp files are the experiments.
 You might need to generate your own js files to run them online as well as your own stimuli.
 
 All codes starting with RMS are for generating stimuli.
-You will also need The Auditory Modelling Toolbox
+You will also need The Auditory Modelling Toolbox and trial list generation.R to prepare the stimuli!
+
+Reference:
 Majdak, P., Hollomey, C., and Baumgartner, R. (2022). 
 "AMT 1.x: A toolbox for reproducible research in auditory modeling,"
 Acta Acustica 6:19 https://doi.org/10.1051/aacus/2022011.
